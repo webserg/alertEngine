@@ -1,20 +1,21 @@
 package main
 
 import (
-	"io"
-	"strconv"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
-	"os"
-	"net/http"
-	"net/smtp"
 	"net"
-    "net/mail"
-	"crypto/tls"
-	"github.com/magiconair/properties"
+	"net/http"
+	"net/mail"
+	"net/smtp"
+	"os"
+	"strconv"
 	"strings"
+
+	"github.com/magiconair/properties"
 	googlesheet "github.com/webserg/alertEngine/readGoogleSheet"
 )
 
@@ -82,54 +83,54 @@ func readMarketData(byteValue []byte) (*MarketData, error) {
 	return &marketData, nil
 }
 
-func sendEmail(mailAuth string, subj string, body string){
+func sendEmail(mailAuth string, subj string, body string) {
 	from := mail.Address{"", "webserg@yahoo.com"}
-    to   := mail.Address{"", "webserg@gmail.com"}
+	to := mail.Address{"", "webserg@gmail.com"}
 
-    // Setup headers
-    headers := make(map[string]string)
-    headers["From"] = from.String()
-    headers["To"] = to.String()
-    headers["Subject"] = subj
-    // Setup message
-    message := ""
-    for k,v := range headers {
-        message += fmt.Sprintf("%s: %s\r\n", k, v)
-    }
-    message += "\r\n" + body
-    // Connect to the SMTP Server
-    servername := "smtp.mail.yahoo.com:465"
-    host, _, _ := net.SplitHostPort(servername)
-    auth := smtp.PlainAuth("","webserg@yahoo.com", mailAuth, host)
-    // TLS config
-    tlsconfig := &tls.Config {
-        InsecureSkipVerify: true,
-        ServerName: host,
-    }
-    // Here is the key, you need to call tls.Dial instead of smtp.Dial
-    // for smtp servers running on 465 that require an ssl connection
-    // from the very beginning (no starttls)
-    conn, err := tls.Dial("tcp", servername, tlsconfig)
+	// Setup headers
+	headers := make(map[string]string)
+	headers["From"] = from.String()
+	headers["To"] = to.String()
+	headers["Subject"] = subj
+	// Setup message
+	message := ""
+	for k, v := range headers {
+		message += fmt.Sprintf("%s: %s\r\n", k, v)
+	}
+	message += "\r\n" + body
+	// Connect to the SMTP Server
+	servername := "smtp.mail.yahoo.com:465"
+	host, _, _ := net.SplitHostPort(servername)
+	auth := smtp.PlainAuth("", "webserg@yahoo.com", mailAuth, host)
+	// TLS config
+	tlsconfig := &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         host,
+	}
+	// Here is the key, you need to call tls.Dial instead of smtp.Dial
+	// for smtp servers running on 465 that require an ssl connection
+	// from the very beginning (no starttls)
+	conn, err := tls.Dial("tcp", servername, tlsconfig)
 	check(err)
-    c, err := smtp.NewClient(conn, host)
-    check(err)
-    // Auth
-    if err = c.Auth(auth); err != nil {
-        log.Panic(err)
-    }
-    // To && From
-    if err = c.Mail(from.Address); err != nil {
-        log.Panic(err)
-    }
-    if err = c.Rcpt(to.Address); err != nil {
-        log.Panic(err)
-    }
-    // Data
-    w, err := c.Data()
+	c, err := smtp.NewClient(conn, host)
 	check(err)
-    _, err = w.Write([]byte(message))
+	// Auth
+	if err = c.Auth(auth); err != nil {
+		log.Panic(err)
+	}
+	// To && From
+	if err = c.Mail(from.Address); err != nil {
+		log.Panic(err)
+	}
+	if err = c.Rcpt(to.Address); err != nil {
+		log.Panic(err)
+	}
+	// Data
+	w, err := c.Data()
 	check(err)
-    err = w.Close()
+	_, err = w.Write([]byte(message))
+	check(err)
+	err = w.Close()
 	check(err)
 	// Send the QUIT command and close the connection.
 	err = c.Quit()
@@ -138,9 +139,8 @@ func sendEmail(mailAuth string, subj string, body string){
 	}
 }
 
-
 func init() {
-	fmt.Println("init")	
+	fmt.Println("init")
 }
 
 func check(e error) {
@@ -150,18 +150,27 @@ func check(e error) {
 	}
 }
 
-func keysString(m map[string]float64) string {
-    keys := make([]string, 0, len(m))
-    for k := range m {
-        keys = append(keys, k)
-    }
-    return strings.Join(keys, ",")
+func keysString(m map[string]float64) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	chunkSize := 5
+	keysStrings := make([]string, len(keys)/chunkSize)
+	for i := 0; i < len(keys); i += chunkSize {
+		end := i + chunkSize
+		if end > len(keys) {
+			end = len(keys)
+		}
+		keysStrings = append(keysStrings, strings.Join(keys[i:end], ","))
+	}
+	return keysStrings
 }
 
 func main() {
-	f, err := os.OpenFile(".\\alertEngine.log", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
+	f, err := os.OpenFile(".\\alertEngine.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-    	log.Fatalf("error opening file: %v", err)
+		log.Fatalf("error opening file: %v", err)
 	}
 	defer f.Close()
 
@@ -173,38 +182,41 @@ func main() {
 	log.Println(props)
 
 	log.Println("read target data")
-	targetData,err := googlesheet.ReadTargetData()
+	targetData, err := googlesheet.ReadTargetData()
 	check(err)
 
-	tickers:=keysString(targetData)
-	log.Println("tickers=" + tickers)
+	tickers := keysString(targetData)
 
-	log.Println("read market data")
-	marketURL := props.MustGetString("marketUrl")
-	marketToken := props.MustGetString("marketToken")
-	url := marketURL + tickers + marketToken
-	resp, err := http.Get(url)
-	check(err)
-	byteValue, err := ioutil.ReadAll(resp.Body)
-	// byteValue, err := readFile("C:/Users/webse/go/src/github.com/webserg/alertEngine/data.json")
-	check(err)
-	marketData, err := readMarketData(byteValue)
-	check(err)
-	log.Println(marketData)
+	for i := 0; i < len(tickers); i++ {
 
-	for _, s := range marketData.Data {
-		log.Println(s.Symbol + " = " + s.Price)
-		price, err := strconv.ParseFloat(s.Price,64)
-		log.Println(price)
+		log.Println("tickers=" + tickers[i])
+		log.Println("read market data")
+		marketURL := props.MustGetString("marketUrl")
+		marketToken := props.MustGetString("marketToken")
+		url := marketURL + tickers[i] + marketToken
+		resp, err := http.Get(url)
 		check(err)
-		targetPrice, exists := targetData[s.Symbol]
-		log.Println(targetPrice)
-		if(exists && targetPrice >= price){
-			log.Println("alert!!! " + s.Symbol + " = " + s.Price)
-			body := fmt.Sprintf("target = %.2f ; price = %.2f ", targetPrice, price)
-			log.Println(body)
-			mailAuth := props.MustGetString("mailAuth")
-			sendEmail(mailAuth, "stock alert " + s.Symbol, body)
+		byteValue, err := ioutil.ReadAll(resp.Body)
+		// byteValue, err := readFile("C:/Users/webse/go/src/github.com/webserg/alertEngine/data.json")
+		check(err)
+		marketData, err := readMarketData(byteValue)
+		check(err)
+		log.Println(marketData)
+
+		for _, s := range marketData.Data {
+			log.Println(s.Symbol + " = " + s.Price)
+			price, err := strconv.ParseFloat(s.Price, 64)
+			log.Println(price)
+			check(err)
+			targetPrice, exists := targetData[s.Symbol]
+			log.Println(targetPrice)
+			if exists && targetPrice >= price {
+				log.Println("alert!!! " + s.Symbol + " = " + s.Price)
+				body := fmt.Sprintf("target = %.2f ; price = %.2f ", targetPrice, price)
+				log.Println(body)
+				mailAuth := props.MustGetString("mailAuth")
+				sendEmail(mailAuth, "stock alert "+s.Symbol, body)
+			}
 		}
 	}
 }
