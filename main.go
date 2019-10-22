@@ -19,7 +19,7 @@ import (
 	googlesheet "github.com/webserg/alertEngine/readGoogleSheet"
 )
 
-//MarketData get from https://api.worldtradingdata.com/api/v1/stock?symbol=AAPL,MSFT,HSBA.L&api_token=BvKoM6i9WSlXECN46TyFnRK7VLSR5H9C19MKB0ZtSB4b4fxgfboeuOqqLCvD
+//MarketData get from https://api.worldtradingdata.com/
 type MarketData struct {
 	SymbolsRequested int `json:"symbols_requested"`
 	SymbolsReturned  int `json:"symbols_returned"`
@@ -51,7 +51,6 @@ type MarketData struct {
 
 func readFile(filaName string) ([]byte, error) {
 	// Open our jsonFile
-	// jsonFile, err := os.Open("/home/webserg/data/test_accounts_291218/data/data/accounts_1.json")
 	jsonFile, err := os.Open(filaName)
 	// if we os.Open returns an error then handle it
 	if err != nil {
@@ -167,6 +166,36 @@ func keysString(m map[string]float64) []string {
 	return keysStrings
 }
 
+func checkAlert(targetData map[string]float64, tickersString string, marketURL string, marketToken string, mailAuth string) {
+	log.Println("tickers=" + tickersString)
+	log.Println("read market data")
+
+	url := marketURL + tickersString + marketToken
+	resp, err := http.Get(url)
+	check(err)
+	byteValue, err := ioutil.ReadAll(resp.Body)
+	// byteValue, err := readFile("C:/Users/webse/go/src/github.com/webserg/alertEngine/data.json")
+	check(err)
+	marketData, err := readMarketData(byteValue)
+	check(err)
+	log.Println(marketData)
+
+	for _, s := range marketData.Data {
+		log.Println(s.Symbol + " = " + s.Price)
+		price, err := strconv.ParseFloat(s.Price, 64)
+		log.Println(price)
+		check(err)
+		targetPrice, exists := targetData[s.Symbol]
+		log.Println(targetPrice)
+		if exists && targetPrice >= price {
+			log.Println("alert!!! " + s.Symbol + " = " + s.Price)
+			body := fmt.Sprintf("target = %.2f ; price = %.2f ", targetPrice, price)
+			log.Println(body)
+			sendEmail(mailAuth, "stock alert "+s.Symbol, body)
+		}
+	}
+}
+
 func main() {
 	f, err := os.OpenFile(".\\alertEngine.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -187,36 +216,11 @@ func main() {
 
 	tickers := keysString(targetData)
 
+	marketURL := props.MustGetString("marketUrl")
+	marketToken := props.MustGetString("marketToken")
+	mailAuth := props.MustGetString("mailAuth")
+
 	for i := 0; i < len(tickers); i++ {
-
-		log.Println("tickers=" + tickers[i])
-		log.Println("read market data")
-		marketURL := props.MustGetString("marketUrl")
-		marketToken := props.MustGetString("marketToken")
-		url := marketURL + tickers[i] + marketToken
-		resp, err := http.Get(url)
-		check(err)
-		byteValue, err := ioutil.ReadAll(resp.Body)
-		// byteValue, err := readFile("C:/Users/webse/go/src/github.com/webserg/alertEngine/data.json")
-		check(err)
-		marketData, err := readMarketData(byteValue)
-		check(err)
-		log.Println(marketData)
-
-		for _, s := range marketData.Data {
-			log.Println(s.Symbol + " = " + s.Price)
-			price, err := strconv.ParseFloat(s.Price, 64)
-			log.Println(price)
-			check(err)
-			targetPrice, exists := targetData[s.Symbol]
-			log.Println(targetPrice)
-			if exists && targetPrice >= price {
-				log.Println("alert!!! " + s.Symbol + " = " + s.Price)
-				body := fmt.Sprintf("target = %.2f ; price = %.2f ", targetPrice, price)
-				log.Println(body)
-				mailAuth := props.MustGetString("mailAuth")
-				sendEmail(mailAuth, "stock alert "+s.Symbol, body)
-			}
-		}
+		checkAlert(targetData, tickers[i], marketURL, marketToken, mailAuth)
 	}
 }
